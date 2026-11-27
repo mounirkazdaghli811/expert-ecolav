@@ -93,11 +93,11 @@ const size=50,pages=Math.max(1,Math.ceil(rows.length/size)),requested=Number(q.g
 return {total:rows.length,page,pages,reservations:rows.slice((page-1)*size,page*size)};
 }
 if(p==='admin/history'&&m==='DELETE'){
-const id=integer(b.id,1,1e9),r=get('SELECT * FROM reservations WHERE id=?',id),n=now();
-if(!r)throw Error('Réservation introuvable.');
-if(r.status!=='cancelled'&&!(r.date<n.date||(r.date===n.date&&r.start+r.duration<=n.minute)))throw Error('Annulez d’abord le rendez-vous à venir ou en cours.');
 if(b.confirm!==true)throw Error('Confirmation de suppression obligatoire.');
-run('DELETE FROM reservations WHERE id=?',id);return {ok:true};
+const raw=b.ids===undefined?[b.id]:b.ids;
+if(!Array.isArray(raw)||raw.length<1||raw.length>500)throw Error('Sélectionnez entre 1 et 500 réservations.');
+const ids=[...new Set(raw.map(id=>integer(id,1,1e9)))],n=now();
+return transaction(()=>{for(const id of ids){const r=get('SELECT * FROM reservations WHERE id=?',id);if(!r)throw Error('Réservation n° '+id+' introuvable. Aucune suppression effectuée.');if(r.status!=='cancelled'&&!(r.date<n.date||(r.date===n.date&&r.start+r.duration<=n.minute)))throw Error('La réservation n° '+id+' est à venir ou en cours. Aucune suppression effectuée.');}for(const id of ids)run('DELETE FROM reservations WHERE id=?',id);return {ok:true,deleted:ids.length};});
 }
 if(p==='admin/day'){const d=requireDate(q.get('date'));return {reservations:listRes(d,d),blocks:all('SELECT * FROM blocks WHERE date=? ORDER BY start',d),expenses:all('SELECT * FROM expenses WHERE date=?',d),closed:closed(d),services:all('SELECT * FROM services ORDER BY id')};}
 if(p==='admin/contacts'&&m==='GET'){
