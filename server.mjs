@@ -84,10 +84,21 @@ const s=auth(req);if(p==='profile'&&m==='POST'){if(s.role!=='client')throw Error
 if(p==='availability-calendar'&&m==='GET'){const from=requireDate(q.get('from'));if(s.role!=='admin'&&from<now().date)throw Error('Choisissez une date à partir d’aujourd’hui.');const a=items((q.get('services')||'').split(',').filter(Boolean));const duration=a.reduce((n,x)=>n+x.duration,0);return {days:availabilityCalendar(from,duration,s.role==='admin'),duration,today:now().date};}
 if(p==='availability'){const date=requireDate(q.get('date')),exclude=s.role==='admin'?Number(q.get('exclude')||0):0,old=exclude?get('SELECT items FROM reservations WHERE id=?',exclude):null;const a=items((q.get('services')||'').split(',').filter(Boolean),old?JSON.parse(old.items):[]),d=a.reduce((n,x)=>n+x.duration,0);return {slots:slots(date,d,s.role==='admin',exclude),next:nextSlot(date,d,s.role==='admin',exclude),duration:d,total:a.reduce((n,x)=>n+x.price,0)};}
 if(p==='reservations'&&m==='POST'){const r=reserve(b,s);if(s.role==='client'){const saved=rowRes(get('SELECT r.*,c.name,c.phone FROM reservations r JOIN customers c ON c.id=r.customer_id WHERE r.id=?',r.id));const message=reservationPush(saved);afterCommit.push(()=>notify(message).catch(()=>console.error('Push delivery failed.')));}return r;}
-if(p==='history'&&s.role==='client'&&m==='GET'){const hidden=q.get('hidden')==='1',n=now();return listRes(requireDate(q.get('from')||'2000-01-01'),requireDate(q.get('to')||'2099-12-31'),s.customer_id).filter(r=>!!r.history_hidden===hidden).map(r=>({...r,can_hide:r.status==='cancelled'||r.date<n.date||(r.date===n.date&&r.start+r.duration<=n.minute)}));}
-if(p==='history'&&s.role==='client'&&m==='DELETE'){const id=integer(b.id,1,1e9),r=get('SELECT * FROM reservations WHERE id=? AND customer_id=?',id,s.customer_id),n=now();if(!r)throw Error('Réservation introuvable.');if(r.status!=='cancelled'&&!(r.date<n.date||(r.date===n.date&&r.start+r.duration<=n.minute)))throw Error('Un rendez-vous à venir ou en cours ne peut pas être retiré de l’historique.');run('UPDATE reservations SET history_hidden=1 WHERE id=? AND customer_id=?',id,s.customer_id);return {ok:true};}
-if(p==='history/restore'&&s.role==='client'&&m==='POST'){const id=integer(b.id,1,1e9),r=run('UPDATE reservations SET history_hidden=0 WHERE id=? AND customer_id=?',id,s.customer_id);if(!r.changes)throw Error('Réservation introuvable.');return {ok:true};}
+if(p==='history'&&s.role==='client'&&m==='GET'){return listRes(requireDate(q.get('from')||'2000-01-01'),requireDate(q.get('to')||'2099-12-31'),s.customer_id);}
 if(s.role!=='admin')throw Error('Accès administrateur requis.');
+if(p==='admin/history'&&m==='GET'){
+const from=requireDate(q.get('from')||'2000-01-01'),to=requireDate(q.get('to')||'2099-12-31'),n=now(),search=txt(q.get('search'),150).toLowerCase();
+const rows=listRes(from,to).filter(r=>!search||[r.name,r.phone,r.vehicle,String(r.id)].some(v=>String(v||'').toLowerCase().includes(search))).reverse().map(r=>({...r,can_delete:r.status==='cancelled'||r.date<n.date||(r.date===n.date&&r.start+r.duration<=n.minute)}));
+const size=50,pages=Math.max(1,Math.ceil(rows.length/size)),requested=Number(q.get('page')||1),page=Math.max(1,Math.min(pages,Number.isSafeInteger(requested)?requested:1));
+return {total:rows.length,page,pages,reservations:rows.slice((page-1)*size,page*size)};
+}
+if(p==='admin/history'&&m==='DELETE'){
+const id=integer(b.id,1,1e9),r=get('SELECT * FROM reservations WHERE id=?',id),n=now();
+if(!r)throw Error('Réservation introuvable.');
+if(r.status!=='cancelled'&&!(r.date<n.date||(r.date===n.date&&r.start+r.duration<=n.minute)))throw Error('Annulez d’abord le rendez-vous à venir ou en cours.');
+if(b.confirm!==true)throw Error('Confirmation de suppression obligatoire.');
+run('DELETE FROM reservations WHERE id=?',id);return {ok:true};
+}
 if(p==='admin/day'){const d=requireDate(q.get('date'));return {reservations:listRes(d,d),blocks:all('SELECT * FROM blocks WHERE date=? ORDER BY start',d),expenses:all('SELECT * FROM expenses WHERE date=?',d),closed:closed(d),services:all('SELECT * FROM services ORDER BY id')};}
 if(p==='admin/contacts'&&m==='GET'){
 const query=txt(q.get('search'),150).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
