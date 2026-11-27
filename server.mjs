@@ -107,6 +107,12 @@ if(p==='admin/expense'&&m==='DELETE'){run('DELETE FROM expenses WHERE id=?',inte
 if(p==='admin/service'&&m==='POST'){const n=txt(b.name);if(!n)throw Error('Nom obligatoire.');const a=[n,money(b.price),integer(b.duration,1,600)];if(b.id)run('UPDATE services SET name=?,price=?,duration=?,active=1 WHERE id=?',...a,integer(b.id,1,1e9));else run('INSERT INTO services(name,price,duration) VALUES(?,?,?)',...a);return {ok:true};}
 if(p==='admin/service'&&m==='DELETE'){run('UPDATE services SET active=0 WHERE id=?',integer(b.id,1,1e9));return {ok:true};}
 if(p==='admin/reports'){const from=requireDate(q.get('from')),to=requireDate(q.get('to')),rs=listRes(from,to).filter(r=>r.status==='confirmed'),expenses=all('SELECT * FROM expenses WHERE date BETWEEN ? AND ? ORDER BY date',from,to);return {reservations:rs,expenses};}
+if(p==='admin/sync-contacts'&&m==='POST'){
+if(!Array.isArray(b.contacts)||b.contacts.length>200)throw Error('Lot de contacts invalide (200 maximum).');
+let imported=0,duplicates=0,invalid=0;
+transaction(()=>{for(const c of b.contacts){const name=txt(c?.name);let tel;for(const t of Array.isArray(c?.tel)?c.tel.slice(0,20):[]){try{tel=phone(t);break}catch{}}if(!name||!tel){invalid++;continue}if(get('SELECT id FROM customers WHERE phone=?',tel)){duplicates++;continue}run('INSERT INTO customers(phone,name) VALUES(?,?)',tel,name);imported++;}});
+return {imported,duplicates,invalid};
+}
 if(p==='admin/import'&&m==='POST'){const raw=String(b.vcf||''),cards=raw.split(/BEGIN:VCARD/i).slice(1);let imported=0,skipped=0;transaction(()=>{for(const c of cards){const name=txt(c.match(/^FN(?:;[^:]*)?:(.*)$/im)?.[1]||c.match(/^N(?:;[^:]*)?:(.*)$/im)?.[1]?.replace(/;/g,' '));const tels=[...c.matchAll(/^TEL(?:;[^:]*)?:(.*)$/gim)].map(x=>x[1].replace(/^tel:/i,''));let p;for(const tel of tels){try{p=phone(tel);break}catch{}}try{if(!p)throw Error('Numéro invalide.');if(!name||get('SELECT id FROM customers WHERE phone=?',p)){skipped++;continue;}run('INSERT INTO customers(phone,name) VALUES(?,?)',p,name);imported++;}catch{skipped++;}}});return {imported,skipped};}
 if(p==='admin/push'&&m==='POST'){if(!b.endpoint||!b.keys?.p256dh||!b.keys?.auth)throw Error('Abonnement invalide.');run('INSERT INTO subscriptions VALUES(?,?) ON CONFLICT(endpoint) DO UPDATE SET body=excluded.body',b.endpoint,JSON.stringify(b));return {ok:true};}
 if(p==='admin/push'&&m==='DELETE'){run('DELETE FROM subscriptions WHERE endpoint=?',txt(b.endpoint,2000));return {ok:true};}
