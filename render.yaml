@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: expert-ecolav
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.16.0
+      - key: HOST
+        value: 0.0.0.0
+      - key: PUBLIC_HTTPS
+        value: '1'
+      - key: TRUST_PROXY
+        value: '1'
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_PASSWORD
+        generateValue: true

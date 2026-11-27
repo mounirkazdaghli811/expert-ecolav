@@ -1,0 +1,17 @@
+{
+  "name": "wash-station-manager",
+  "version": "2.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node test.mjs",
+    "backup": "node backup.mjs"
+  },
+  "dependencies": {
+    "pg": "^8.16.3"
+  }
+}
