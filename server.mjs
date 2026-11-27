@@ -85,6 +85,16 @@ if(p==='reservations'&&m==='POST'){const r=reserve(b,s);if(s.role==='client'){co
 if(p==='history'&&s.role==='client'){return listRes(requireDate(q.get('from')||'2000-01-01'),requireDate(q.get('to')||'2099-12-31'),s.customer_id);}
 if(s.role!=='admin')throw Error('Accès administrateur requis.');
 if(p==='admin/day'){const d=requireDate(q.get('date'));return {reservations:listRes(d,d),blocks:all('SELECT * FROM blocks WHERE date=? ORDER BY start',d),expenses:all('SELECT * FROM expenses WHERE date=?',d),closed:closed(d),services:all('SELECT * FROM services ORDER BY id')};}
+if(p==='admin/contacts'&&m==='GET'){
+const query=txt(q.get('search'),150).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+const digits=query.replace(/[^0-9]/g,'').replace(/^00216|^216(?=\d{8}$)/,'');
+const phoneSearch=/^[+\d\s().-]+$/.test(query)&&digits;
+const filter=v=>String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+const rows=all("SELECT id,name,phone,first_name,last_name,address,vehicle,CASE WHEN password_hash IS NOT NULL AND password_salt IS NOT NULL THEN 1 ELSE 0 END AS activated FROM customers ORDER BY name COLLATE NOCASE,id");
+const matches=query?rows.filter(c=>[c.name,c.phone,c.vehicle,c.address].some(v=>filter(v).includes(query))||(phoneSearch&&c.phone.includes(digits))):rows;
+const pageSize=50, pages=Math.max(1,Math.ceil(matches.length/pageSize)), requested=Number(q.get('page')||1), page=Math.min(pages,Math.max(1,Number.isSafeInteger(requested)?requested:1));
+return {total:rows.length,filtered:matches.length,page,pages,contacts:matches.slice((page-1)*pageSize,page*pageSize).map(c=>({...safeCustomer(c),activated:!!c.activated}))};
+}
 if(p==='admin/customer'){return safeCustomer(get('SELECT * FROM customers WHERE phone=?',phone(q.get('phone'))));}
 if(p==='admin/activation'&&m==='POST'){const c=get('SELECT * FROM customers WHERE phone=?',phone(b.phone));if(!c)throw Error('Client introuvable.');const code=randomBytes(12).toString('base64url'),salt=randomBytes(16).toString('hex');transaction(()=>{run('UPDATE customers SET activation_hash=?,activation_salt=?,activation_expires=?,password_hash=NULL,password_salt=NULL WHERE id=?',hash(code,salt),salt,Date.now()+48*3600000,c.id);run('DELETE FROM sessions WHERE customer_id=?',c.id);});return {code,expiresHours:48};}
 if(p==='admin/reservation'&&m==='PUT')return reserve(b,s,integer(b.id,1,1e9));
