@@ -29,7 +29,7 @@ const initialize=()=>{
 if(!conf('seeded')){for(const [n,p,d] of [['Rénovation intérieure',140,600],['Intérieur / extérieur',20,90],['Lavage moteur',30,30],['Nettoyage plafonnier',30,30],['Nettoyage moquette',40,180],['Intérieur / extérieur avec cire',70,120]])run('INSERT INTO services(name,price,duration) VALUES(?,?,?)',n,p*1000,d);set('seeded','1');}
 if(!conf('auth_v2')){run("DELETE FROM sessions WHERE role='client'");set('auth_v2','1');}
 
-if(!conf('admin_hash')||(!cloud&&process.env.ADMIN_PASSWORD)){const p=process.env.ADMIN_PASSWORD||randomBytes(12).toString('base64url');const salt=randomBytes(16).toString('hex');set('admin_salt',salt);set('admin_hash',hash(password(p),salt));run("DELETE FROM sessions WHERE role='admin'");if(!process.env.ADMIN_PASSWORD)console.log('Mot de passe administrateur initial (à conserver): '+p);}
+if(!conf('admin_hash')||(process.env.ADMIN_PASSWORD&&!match(process.env.ADMIN_PASSWORD,conf('admin_salt'),conf('admin_hash')))){const p=process.env.ADMIN_PASSWORD||randomBytes(12).toString('base64url');const salt=randomBytes(16).toString('hex');set('admin_salt',salt);set('admin_hash',hash(password(p),salt));run("DELETE FROM sessions WHERE role='admin'");if(!process.env.ADMIN_PASSWORD)console.log('Mot de passe administrateur initial (à conserver): '+p);else console.log('Administrator password synchronized; previous administrator sessions revoked.');}
 if(!conf('vapid_private')){const e=createECDH('prime256v1');e.generateKeys();set('vapid_private',e.getPrivateKey().toString('base64url'));set('vapid_public',e.getPublicKey().toString('base64url'));}
 };
 if(cloud)await cloud.run(initialize,true);else initialize();
