@@ -50,9 +50,26 @@ const money=x=>{const n=Number(x);if(!Number.isFinite(n)||n<0||n>1000000)throw E
 const closed=d=>{const v=get('SELECT closed FROM closures WHERE date=?',d);return v?!!v.closed:new Date(d+'T12:00:00Z').getUTCDay()===0};
 function items(ids,old=[]){if(!Array.isArray(ids)||!ids.length)throw Error('Sélectionnez au moins une prestation.');const a=[...new Set(ids.map(Number))].map(id=>{const s=get('SELECT * FROM services WHERE id=? AND active=1',id);return s||old.find(x=>x.id===id)});if(a.some(x=>!x))throw Error('Prestation indisponible.');return a.map(({id,name,price,duration})=>({id,name,price,duration}));}
 function free(d,start,duration,exclude=0){const occupied=all("SELECT start,duration,lane FROM reservations WHERE date=? AND status='confirmed' AND id!=? UNION ALL SELECT start,duration,lane FROM blocks WHERE date=?",d,exclude,d);return [1,2].filter(l=>!occupied.some(x=>x.lane===l&&start<x.start+x.duration&&start+duration>x.start));}
-const STANDARD_WASH_STARTS=Object.freeze([510,600,720,840,960]);
-const hasFixedWash=services=>services.some(x=>Number(x.id)===2||String(x.name||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().replace(/^lavage\s+/,'').replace(/\s*\/\s*/g,' / ')==='interieur / exterieur');
-function slots(d,duration,admin=false,exclude=0,services=[]){if(!validDate(d)||duration>600||closed(d))return [];const n=now();if(!admin&&d<n.date)return [];const starts=[],fixed=hasFixedWash(services);for(let s=510;s+duration<=1110;s+=30){if(fixed&&!STANDARD_WASH_STARTS.includes(s))continue;if(duration>180&&s!==510)continue;if(!admin&&d===n.date&&s<n.minute)continue;const lanes=free(d,s,duration,exclude);if(lanes.length)starts.push({start:s,lanes});}return starts;}
+// Dynamic scheduling: each lane offers the first fitting start in every free interval.
+const WASH_OPEN=510,WASH_LAST_START=960,WASH_CLOSE=1110;
+function dynamicSlots(occupied,duration,notBefore=WASH_OPEN){
+ if(!Number.isInteger(duration)||duration<1||duration>WASH_CLOSE-WASH_OPEN)return [];
+ const grouped=new Map();
+ for(const lane of [1,2]){
+  const intervals=occupied.filter(x=>Number(x.lane)===lane&&Number(x.duration)>0).map(x=>({start:Math.max(WASH_OPEN,Number(x.start)),end:Math.min(WASH_CLOSE,Number(x.start)+Number(x.duration))})).filter(x=>x.end>x.start).sort((a,b)=>a.start-b.start||a.end-b.end);
+  let cursor=WASH_OPEN;
+  const offer=end=>{const start=cursor<notBefore?Math.max(cursor,Math.ceil(notBefore/30)*30):cursor;if(start<=WASH_LAST_START&&start+duration<=end&&start+duration<=WASH_CLOSE){if(!grouped.has(start))grouped.set(start,[]);grouped.get(start).push(lane)}};
+  for(const interval of intervals){if(interval.start>cursor)offer(interval.start);cursor=Math.max(cursor,interval.end);if(cursor>=WASH_CLOSE)break;}
+  if(cursor<WASH_CLOSE)offer(WASH_CLOSE);
+ }
+ return [...grouped].sort((a,b)=>a[0]-b[0]).map(([start,lanes])=>({start,lanes}));
+}
+function slots(d,duration,admin=false,exclude=0,services=[]){
+ if(!validDate(d)||closed(d))return [];
+ const n=now();if(!admin&&d<n.date)return [];
+ const occupied=all("SELECT start,duration,lane FROM reservations WHERE date=? AND status='confirmed' AND id!=? UNION ALL SELECT start,duration,lane FROM blocks WHERE date=?",d,exclude,d);
+ return dynamicSlots(occupied,duration,!admin&&d===n.date?Math.max(WASH_OPEN,n.minute):WASH_OPEN);
+}
 function availabilityCalendar(from,duration,admin=false,exclude=0,services=[]){
 return Array.from({length:7},(_,i)=>{const date=addDay(from,i),isClosed=closed(date),available=slots(date,duration,admin,exclude,services);return {date,closed:isClosed,slots:available,lanes:[1,2].map(lane=>({lane,count:available.filter(slot=>slot.lanes.includes(lane)).length}))};});
 }
